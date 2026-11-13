@@ -1,0 +1,137 @@
+You are an expert Data Scientist and Credit Risk Modeler for a major bank, as well as a careful Python, scikit-learn, and Jupyter Notebook developer. Create a new notebook named `german_credit_risk_oop.ipynb` by refactoring the existing `german_credit_risk.ipynb` into a clear, runnable object-oriented design and strengthening its explanations.
+
+## Source of truth and access
+
+- Repository: `fluentpython/example-code-2e` — https://fpy.li/code
+- Source notebook: `german_credit_risk.ipynb`
+- Accompanying data: `credit-g.csv`
+- The source notebook and its accompanying data are authoritative for the existing dataset, analysis, preprocessing, models, validation strategy, metrics, results, plots, and conclusions.
+- Inspect the actual notebook and data. Do not infer this notebook’s methods from other notebooks in the repository.
+- If the attachment is not available, check the conversation context and available repository material. If the necessary notebook or dataset still cannot be accessed, ask me to provide it; do not guess at its contents or results.
+
+## Main task: OOP refactor
+
+Refactor the procedural notebook into a small, clear set of cohesive classes without building an overengineered framework. For example, use a loader/validator, an EDA/visualization class, and an experiment/workflow class for preprocessing, splitting, cross-validation, fitting, evaluation, and importance analysis. Combine responsibilities where that makes the design simpler. Avoid a class for every helper, unnecessary inheritance, and global mutable state.
+
+Use readable, idiomatic Python with type hints and concise docstrings where helpful. Keep random seeds, model settings, validation choices, and metrics explicit. Ensure imports and object initialization occur before use, and that cells run from top to bottom in a fresh kernel without hidden execution-order assumptions.
+
+## Preserve the original methodology
+
+Preserve the dataset, analysis, preprocessing, train/test split, models, validation strategy, evaluation metrics, plots, and conclusions unless a correction is necessary. Explain every necessary change and do not silently alter the methodology.
+
+- Keep the original split and reproducibility behavior.
+- Keep learned preprocessing inside scikit-learn pipelines (or equivalent structures), fitted only on training data or within each cross-validation fold.
+- Keep the held-out test set out of model selection, hyperparameter tuning, feature selection, and threshold selection. Use it only for clearly identified final evaluation and descriptive diagnostics.
+- Keep scoring and model selection procedures faithful to the actual code.
+- Distinguish fixed configuration choices from model selection and actual hyperparameter search. Do not call fixed settings “tuned” or “optimal.”
+- Do not add dependencies unless essential.
+
+## Explain every meaningful result in Markdown
+
+For every code cell that produces a meaningful plot, calculated value, table, metric, validation result, or diagnostic, add or update a nearby Markdown cell—preferably immediately after the code cell—to explain the actual result. Each explanation should:
+
+1. Describe what the result shows and how it was produced. Define metrics and identify whether results come from training, cross-validation, or final holdout evaluation.
+2. Explain its relevance to credit-risk modeling and potential lending implications, including approvals, defaults, portfolio risk, customer experience, operational workload, and access to credit where applicable.
+3. State what the result does not establish, including uncertainty, sample-size limitations, class imbalance, calibration, correlation-versus-causation, and generalization limits where relevant.
+
+Write for readers familiar with basic lending but not necessarily statistical terminology. Define technical language in plain terms. Interpret plots based on what they actually show; do not infer unsupported patterns. Keep Markdown aligned with code and outputs. Remove or refresh stale outputs that no longer correspond to the code. Do not merely repeat output numbers: explain their practical meaning and limitations.
+
+## Required modeling and statistical Markdown sections
+
+Place explanations near the corresponding modeling, validation, threshold, and evaluation code. Use actual Markdown math source with standard LaTeX delimiters (`$...$`, `\\(...\\)`, `$$...$$`, or `\\[...\\]`). Do not use screenshots or code blocks for formulas.
+
+### 1. Models and methodology
+
+Explain the mathematical and statistical foundations of every model actually used, including supplementary models added for diagnostics. For each, describe the prediction target, mathematical formulation, estimation or prediction process, assumptions, strengths, and limitations in the context of this dataset.
+
+For logistic regression, if present, explain the binary-outcome/binomial GLM and logit link, for example:
+
+$$
+\\log\\left(\\frac{p_i}{1-p_i}\\right)=\\beta_0+\\mathbf{x}_i^\\top\\boldsymbol{\\beta}.
+$$
+
+Discuss linearity in the log-odds, estimation, one-hot encoding, numeric scaling, class weights, calibration, and sample size as applicable.
+
+For a random forest, if present, explain decision-tree partitions and aggregation of tree predictions, for example:
+
+$$
+\\hat p(y=1\\mid\\mathbf{x})=\\frac{1}{B}\\sum_{b=1}^{B}\\hat p_b(y=1\\mid\\mathbf{x}).
+$$
+
+Discuss its flexibility, limitations, stability/variance, overfitting risk, interpretability, and relevance to a small dataset with mixed categorical and numeric features.
+
+Ground explanations in the actual dataset: the binary `good`/`bad` outcome, sample size, class proportions, predictor types, and validation strategy. Neither model should be presented as automatically valid, causal, fair, calibrated, or production-ready.
+
+### 2. Hyperparameter rationale
+
+Inventory the actual model, preprocessing, split, CV, and scoring settings found in the notebook. Explain which values are fixed design choices, which decisions are made by validation, and whether a hyperparameter search actually occurs. Explain the rationale and trade-offs of settings and any search ranges that are truly present. Do not invent a search or claim optimality unsupported by the code.
+
+### 3. ROC analysis
+
+Explain ROC curves and ROC-AUC in plain language, including true-positive rate/sensitivity for `bad`, false-positive rate, and the threshold trade-off. Distinguish ranking quality from calibration. Interpret the actual holdout AUC in light of its size and number of `bad` examples. If reporting an interval, identify and validate the method, confidence level, resampling scheme, and limitations. Do not use test-set results or intervals to select models or thresholds.
+
+### 4. Precision–recall analysis
+
+Explain precision, recall, and average precision (AP), why these can be useful under class imbalance, and how the trade-off affects default detection and flag/review workload. Explain that PR and ROC metrics answer different questions; do not claim one is universally superior. Interpret the actual plots and values, including the class prevalence baseline where relevant.
+
+### 5. Threshold selection and lending decisions
+
+If adding threshold-selection code is appropriate, make it explicit and reproducible. Candidate methods may include a fixed 0.5 threshold, Youden’s J, max F1, a sensitivity constraint at a pre-specified specificity (or vice versa), and a cost-based threshold only when defensible costs are actually available.
+
+Explain score versus decision, the threshold’s effect on flagged/approved populations, and the consequences of false negatives (missed bad-risk applicants) and false positives (good applicants incorrectly flagged). Explain that Youden’s J, F1, and cost-based selection optimize different objectives; none automatically maximizes bank profit, minimizes expected loss, or defines fair credit policy. Cost-sensitive training and threshold selection based on costs are distinct choices. Do not invent cost values. Any selected threshold must be chosen from training-only data or training-only out-of-fold predictions, locked, and then applied once to the untouched test set.
+
+### 6. Fairness and subgroup diagnostics
+
+Investigate, rather than assume, the supplied claim that good applicants under 25 are wrongly flagged 42% of the time versus 16% for those over 40, and that removing age does not resolve a disparity because other predictors can predict age with AUC around 0.80. Verify group definitions, denominators, threshold, predictions, and uncertainty. Report subgroup sizes. Label “good applicants incorrectly flagged as bad” as a false-positive rate within the good-class subgroup. Treat group comparisons and age-prediction analyses as limited diagnostics, not proof of discrimination, causation, proxy use, or legal compliance. Do not use these diagnostics to tune a threshold on the holdout. Explain appropriate governance, validation, and further review.
+
+### 7. Raw-input validation
+
+Explain the behavior of the actual preprocessing, including `OneHotEncoder(handle_unknown="ignore")` if present. Distinguish unseen categories from impossible numeric values. Add a raw-input validation layer only if appropriate, with checks for schema, missing/malformed values, known categories, and defensible domain rules. Do not infer domain constraints solely from observed training minima/maxima or claim the existing validator checks properties it does not check. Explain that successful scoring does not prove that an input is valid or the model is safe for production. If adding checks, test and describe exactly what they catch.
+
+### 8. Feature importance and SHAP
+
+Explain the notebook’s actual feature-importance method, how it is calculated, and why predictive importance is not causation. Discuss uncertainty, feature correlation, and ranking instability. Investigate—but do not assume—the claim that the top-three feature set is stable across folds while second and third positions may swap. Preserve the existing holdout importance as a separately labeled final descriptive analysis; do not use holdout importance for feature selection.
+
+Explain SHAP in Markdown only if relevant to the code. If calculating SHAP, use the actual SHAP package, a documented explainer and background dataset, and leakage-safe data. Check API compatibility and sparse/dense matrix handling. Do not suppress additivity errors without investigating. If SHAP cannot run, label it as unexecuted and include no fabricated SHAP values, outputs, or figures. Label aggregation back to original features as unimplemented unless implemented and verified.
+
+## Claims to verify, not repeat uncritically
+
+Check these claims against the actual data and code before stating them as results:
+
+- Holdout AUC is around 0.80 with a 0.74–0.87 interval because the holdout has only 60 defaulters.
+- Forest-versus-logistic AUC gap shrinks from 0.028 to 0.014 with `p≈0.17` when repeated over all data.
+- `class_weight="balanced"` leaves AUC unchanged but raises average predicted default probability to 0.42–0.43 despite 0.30 observed prevalence.
+- The top-three feature set is stable across folds, although the second and third positions can swap.
+- Good applicants under 25 are falsely flagged 42% of the time versus 16% for over-40s; dropping age does not help because other fields predict age with AUC 0.80.
+- The pipeline silently scores impossible or unseen inputs, motivating input validation.
+
+For each claim, verify it using a defensible analysis or clearly label it unverified/omit the numerical value. Explain the calculation, sample, and limitations. Do not present suggested analyses as completed analyses. Do not claim statistical significance from small differences without an appropriate, clearly described test. Keep any supplementary repeated-CV comparisons within training data and describe exactly how they were conducted. Test-set intervals or subgroup diagnostics may be reported descriptively, but must never drive model, feature, or threshold selection.
+
+## Markdown title requirement
+
+Include a Markdown cell titled exactly:
+
+`## Model Interpretation and Validation Notes`
+
+Use it to summarize verified statistical and operational caveats, with clear distinction between observed results, unverified claims, and recommendations.
+
+## Lending-business interpretation for all results
+
+For every plot, calculated value, metric, and methodology, explain its overall effect or relevance to the lending business while remaining appropriately cautious. Relate results to approvals, defaults, portfolio risk, customer impact, and operational work where justified. Also explain what the analysis cannot establish. Do not imply that a score or flag alone should approve or deny credit. Real lending policy additionally requires justified business costs, expected loss (including exposure and loss given default where relevant), affordability and policy checks, calibration, fairness review, monitoring, governance, and applicable legal/regulatory requirements. Clearly state that this historical teaching dataset is not suitable for real lending decisions.
+
+## Citations
+
+Cite every external source actually consulted near the claims it supports, and include a references section with working URLs and enough bibliographic information to identify each source. Consult the book chapter only if it is actually available to you. Do not fabricate sources, quotes, chapter details, or evidence. Clearly distinguish published methodological facts from calculations on this dataset.
+
+## Execution and deliverables
+
+- Return the completed notebook as a valid `.ipynb` file named `german_credit_risk_oop.ipynb`.
+- Execute it top to bottom in a fresh kernel if possible. Report accurately whether you did so and any errors or unavailable dependencies. Never claim successful execution if only a plain-Python session, dummy module, static review, or manually assigned execution counts were used.
+- Remove or refresh stale outputs. Execution counts must reflect actual notebook execution or be null if no kernel run occurred.
+- If the full notebook cannot be returned, provide a complete cell-by-cell replacement plan with all code and Markdown cells spelled out, but do not claim this is the completed notebook.
+- Include a concise final summary describing the OOP design, preserved behavior, hyperparameter rationale, Markdown interpretations added, verified or unverified claims, corrections, SHAP status, sources, and execution status.
+- If files cannot be accessed after checking the available attachments and conversation context, ask me to provide them rather than guessing.
+
+## Final quality check
+
+Before returning, verify that every meaningful code output has an adjacent Markdown explanation that matches the actual result; equations render from genuine LaTeX Markdown source; notebook code and prose agree; no unsupported results remain; the test set was not used for selection; and the notebook is valid JSON and runnable in order.
