@@ -1,0 +1,286 @@
+\documentclass[10pt]{article}
+\usepackage[margin=0.72in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{titlesec}
+\hypersetup{colorlinks=true,urlcolor=blue,linkcolor=blue}
+\titleformat{\section}{\large\bfseries}{\thesection}{0.5em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{0.5em}{}
+\setlist{nosep,leftmargin=*}
+\lstdefinestyle{code}{basicstyle=\ttfamily\scriptsize,breaklines=true,frame=single,numbers=left,numberstyle=\tiny\color{gray},showstringspaces=false,columns=fullflexible,tabsize=4}
+\lstset{style=code}
+\title{Pair-Programming Quick Reference\\\large German Credit Risk Case Study}
+\author{Sizo Duma}
+\date{}
+\begin{document}
+\maketitle
+\begin{center}\small Practical TDD-first snippets for a 90-minute Python/SQL pairing session. This is a preparation aid, not a prediction of interview questions.\end{center}
+
+\section{Interview approach: clarify, test, implement}
+The case study asks for data preparation and exploration, three predictive features, credit-risk modelling, and validation. The submitted notebook is procedural and already uses a stratified 80/20 split (seed 42), a preprocessing pipeline, five-fold stratified CV, logistic regression and random forest. Keep the existing implementation as the baseline. Avoid rewriting the notebook or introducing classes unless the interviewers ask.
+
+For each new requirement: clarify expected behavior and edge cases; write a failing test (Red); add the smallest implementation (Green); refactor while tests remain green; run targeted tests and summarize the change. Communicate trade-offs, especially around false positives, missed bad-risk applicants, probability calibration, and test-set leakage.
+
+\section{Python: small testable functions}
+These snippets assume the existing notebook variables \texttt{X}, \texttt{y}, \texttt{X\_train}, \texttt{X\_test}, \texttt{y\_train}, \texttt{y\_test}, \texttt{models}, \texttt{best}, \texttt{proba}, \texttt{pred}, \texttt{num\_cols}, and \texttt{cat\_cols}. Adapt imports and names to the checked-out notebook. Tests should be placed before implementation in a live TDD session.
+
+\subsection{1. Cost threshold: make the convention explicit}
+Here the positive label is \texttt{bad}. At threshold $t$, an applicant is flagged when $p(\mathrm{bad})\geq t$. This illustrative loss assigns cost to approving a bad applicant and rejecting a good applicant. The numbers are assumptions for a coding exercise, not estimated bank economics.
+
+\begin{lstlisting}[language=Python,caption={Test first: minimum expected classification cost}]
+import numpy as np
+
+def test_cost_threshold_selects_lower_cost_candidate():
+    p = np.array([0.1, 0.4, 0.8])
+    y = np.array([0, 1, 1])
+    result = choose_cost_threshold(
+        y, p, thresholds=[0.2, 0.6],
+        cost_approve_bad=5, cost_reject_good=1,
+    )
+    assert result["threshold"] in {0.2, 0.6}
+    assert result["cost"] == min(
+        expected_cost(y, p >= 0.2, 5, 1),
+        expected_cost(y, p >= 0.6, 5, 1),
+    )
+\end{lstlisting}
+
+\begin{lstlisting}[language=Python,caption={Implementation: evaluate decisions and select among candidate thresholds}]
+def expected_cost(y_true, flagged_bad, cost_approve_bad, cost_reject_good):
+    y_true = np.asarray(y_true, dtype=int)
+    flagged_bad = np.asarray(flagged_bad, dtype=bool)
+    false_negative = (y_true == 1) & ~flagged_bad
+    false_positive = (y_true == 0) & flagged_bad
+    return float(cost_approve_bad * false_negative.sum()
+                 + cost_reject_good * false_positive.sum())
+
+def choose_cost_threshold(y_true, probability, thresholds,
+                          cost_approve_bad, cost_reject_good):
+    if cost_approve_bad < 0 or cost_reject_good < 0:
+        raise ValueError("Costs must be non-negative.")
+    candidates = []
+    for threshold in thresholds:
+        decisions = np.asarray(probability) >= threshold
+        candidates.append({
+            "threshold": float(threshold),
+            "cost": expected_cost(y_true, decisions,
+                                  cost_approve_bad, cost_reject_good),
+        })
+    if not candidates:
+        raise ValueError("Provide at least one threshold.")
+    return min(candidates, key=lambda row: row["cost"])
+\end{lstlisting}
+
+Choose the threshold using training-only validation predictions, then evaluate it once on the untouched holdout. A 5:1 cost ratio is illustrative only. Real expected loss also involves exposure, loss given default, recoveries, pricing, policy constraints, and customer impact. Do not equate this simple loss with a bank's complete economic objective.
+
+\subsection{2. Feature engineering without leakage}
+Feature engineering should happen inside the preprocessing pipeline so every CV fold learns transformations from its training fold. A deterministic row-wise transformation can use a \texttt{FunctionTransformer}; test the transformation independently first.
+
+\begin{lstlisting}[language=Python,caption={Test first: installment burden is amount divided by duration}]
+import pandas as pd
+
+def test_add_risk_features_calculates_burden_and_age_band():
+    sample = pd.DataFrame({"credit_amount": [1200], "duration": [12],
+                           "age": [24]})
+    result = add_risk_features(sample)
+    assert result.loc[0, "monthly_installment_burden"] == 100
+    assert result.loc[0, "age_band"] == "under_25"
+\end{lstlisting}
+
+\begin{lstlisting}[language=Python,caption={Implementation: deterministic feature derivation}]
+def add_risk_features(frame):
+    result = frame.copy()
+    result["monthly_installment_burden"] = (
+        result["credit_amount"] / result["duration"].replace(0, np.nan)
+    )
+    result["age_band"] = pd.cut(
+        result["age"], bins=[0, 25, 40, np.inf],
+        labels=["under_25", "25_to_40", "over_40"], right=False,
+    ).astype("string")
+    return result
+\end{lstlisting}
+
+Before adding these fields, consider whether they are economically meaningful and whether they duplicate existing predictors. Age-derived features also warrant fairness and legal review. Do not present predictive associations as causal drivers.
+
+\subsection{3. Pipeline factory and testable preprocessing}
+A small function can create the existing pipeline without adding an abstraction layer. Any new transformer must be fitted within the pipeline and CV fold.
+
+\begin{lstlisting}[language=Python,caption={Test first: pipeline exposes probabilities and preserves preprocessing}]
+def test_make_model_pipeline_predicts_probabilities():
+    pipeline = make_model_pipeline(
+        LogisticRegression(max_iter=2000), num_cols, cat_cols
+    )
+    pipeline.fit(X_train, y_train)
+    probability = pipeline.predict_proba(X_test.iloc[:3])[:, 1]
+    assert probability.shape == (3,)
+    assert np.isfinite(probability).all()
+    assert ((probability >= 0) & (probability <= 1)).all()
+\end{lstlisting}
+
+\begin{lstlisting}[language=Python,caption={Implementation: pipeline factory}]
+def make_model_pipeline(estimator, numeric_columns, categorical_columns):
+    numeric = Pipeline([
+        ("imputer", SimpleImputer(strategy="median")),
+        ("scale", StandardScaler()),
+    ])
+    categorical = Pipeline([
+        ("imputer", SimpleImputer(strategy="most_frequent")),
+        ("onehot", OneHotEncoder(handle_unknown="ignore")),
+    ])
+    preprocess = ColumnTransformer([
+        ("numeric", numeric, numeric_columns),
+        ("categorical", categorical, categorical_columns),
+    ])
+    return Pipeline([("prep", preprocess), ("model", estimator)])
+\end{lstlisting}
+
+\subsection{4. Evaluation helper}
+Keep ranking metrics on probabilities and threshold metrics on labels. Brier score is a probability error measure; it is not the same as ROC-AUC.
+
+\begin{lstlisting}[language=Python,caption={Test first: evaluation returns expected metrics}]
+def test_evaluate_binary_model_reports_auc_and_brier():
+    y_true = np.array([0, 0, 1, 1])
+    p = np.array([0.1, 0.4, 0.6, 0.9])
+    result = evaluate_binary_model(y_true, p, threshold=0.5)
+    assert 0 <= result["roc_auc"] <= 1
+    assert result["brier"] >= 0
+    assert result["threshold"] == 0.5
+\end{lstlisting}
+
+\begin{lstlisting}[language=Python,caption={Implementation: compact evaluation summary}]
+def evaluate_binary_model(y_true, probability, threshold=0.5):
+    prediction = (np.asarray(probability) >= threshold).astype(int)
+    return {
+        "roc_auc": roc_auc_score(y_true, probability),
+        "average_precision": average_precision_score(y_true, probability),
+        "balanced_accuracy": balanced_accuracy_score(y_true, prediction),
+        "brier": brier_score_loss(y_true, probability),
+        "threshold": float(threshold),
+        "confusion_matrix": confusion_matrix(y_true, prediction),
+    }
+\end{lstlisting}
+
+\subsection{5. Input validation and single-applicant scoring}
+\texttt{OneHotEncoder(handle\_unknown="ignore")} avoids an encoder exception for unseen categories; it does not mean an unfamiliar category is valid. Validate inputs against a documented schema and defensible business constraints.
+
+\begin{lstlisting}[language=Python,caption={Test first: reject a missing feature}]
+import pytest
+
+def test_validate_applicant_rejects_missing_columns():
+    with pytest.raises(ValueError, match="Missing columns"):
+        validate_applicants(pd.DataFrame({"age": [30]}), X.columns)
+\end{lstlisting}
+
+\begin{lstlisting}[language=Python,caption={Implementation: schema guard and probability scoring}]
+def validate_applicants(rows, expected_columns):
+    missing = set(expected_columns) - set(rows.columns)
+    extra = set(rows.columns) - set(expected_columns)
+    if missing:
+        raise ValueError(f"Missing columns: {sorted(missing)}")
+    if extra:
+        raise ValueError(f"Unexpected columns: {sorted(extra)}")
+    if rows[list(expected_columns)].isna().any().any():
+        raise ValueError("Applicant data contains missing values.")
+    return rows.loc[:, expected_columns].copy()
+
+def score_applicants(rows, fitted_pipeline, expected_columns):
+    checked = validate_applicants(rows, expected_columns)
+    return fitted_pipeline.predict_proba(checked)[:, 1]
+\end{lstlisting}
+
+Do not return fabricated ``top risk drivers'' from a scoring function. To explain a prediction, use a defined, tested explanation method and label its limitations. Validate numeric ranges only when confirmed by the product/data contract; do not infer them from the observed sample minimum and maximum.
+
+\section{SQL quick reference for analytics}
+The referenced Packt repository, \emph{SQL for Data Analytics, Fourth Edition}, covers data loading, filtering, aggregation, CTEs, window functions, performance, and inferential statistics. Examples below use mostly standard SQL, with PostgreSQL-specific syntax labeled. Confirm the target database dialect before using features such as \texttt{FILTER}, casts, or \texttt{COPY}.
+
+Assume a table named \texttt{credit\_applicants} and a quoted target column \texttt{"class"}. In production, use parameterized queries from Python rather than concatenating untrusted values into SQL.
+
+\subsection{Profile labels and bad rate}
+\begin{lstlisting}[language=SQL,caption={ANSI-style summary with conditional aggregation}]
+SELECT
+    COUNT(*) AS applicants,
+    SUM(CASE WHEN "class" = 'good' THEN 1 ELSE 0 END) AS good_count,
+    SUM(CASE WHEN "class" = 'bad' THEN 1 ELSE 0 END) AS bad_count,
+    AVG(CASE WHEN "class" = 'bad' THEN 1.0 ELSE 0.0 END) AS bad_rate
+FROM credit_applicants;
+\end{lstlisting}
+
+\subsection{Bad rates by category}
+\begin{lstlisting}[language=SQL,caption={Group counts and observed bad rate}]
+SELECT
+    checking_status,
+    COUNT(*) AS applicants,
+    SUM(CASE WHEN "class" = 'bad' THEN 1 ELSE 0 END) AS bad_count,
+    AVG(CASE WHEN "class" = 'bad' THEN 1.0 ELSE 0.0 END) AS bad_rate
+FROM credit_applicants
+GROUP BY checking_status
+ORDER BY bad_rate DESC;
+\end{lstlisting}
+
+Rates should be presented with group counts; a small category may have a volatile rate. This descriptive table is not a causal analysis.
+
+\subsection{Basic data-quality checks}
+\begin{lstlisting}[language=SQL,caption={Check nulls and obvious numeric violations}]
+SELECT
+    COUNT(*) AS row_count,
+    SUM(CASE WHEN "class" IS NULL THEN 1 ELSE 0 END) AS missing_target,
+    SUM(CASE WHEN duration IS NULL THEN 1 ELSE 0 END) AS missing_duration,
+    SUM(CASE WHEN credit_amount IS NULL THEN 1 ELSE 0 END) AS missing_amount,
+    SUM(CASE WHEN duration <= 0 THEN 1 ELSE 0 END) AS nonpositive_duration,
+    SUM(CASE WHEN credit_amount <= 0 THEN 1 ELSE 0 END) AS nonpositive_amount
+FROM credit_applicants;
+\end{lstlisting}
+
+\subsection{Age-group descriptive slice}
+\begin{lstlisting}[language=SQL,caption={Observed label rates by age bracket (PostgreSQL CASE is portable)}]
+SELECT
+    CASE WHEN age < 25 THEN 'under_25'
+         WHEN age > 40 THEN 'over_40'
+         ELSE '25_to_40' END AS age_group,
+    COUNT(*) AS applicants,
+    SUM(CASE WHEN "class" = 'bad' THEN 1 ELSE 0 END) AS bad_count,
+    AVG(CASE WHEN "class" = 'bad' THEN 1.0 ELSE 0.0 END) AS bad_rate
+FROM credit_applicants
+GROUP BY 1
+ORDER BY 1;
+\end{lstlisting}
+
+This describes historical label rates, not model false-positive rates. For false-positive rates, query actual and predicted labels from a holdout predictions table, and report only as a limited diagnostic.
+
+\subsection{Window-function example}
+\begin{lstlisting}[language=SQL,caption={Rank categories by observed bad rate}]
+WITH category_rates AS (
+    SELECT checking_status,
+           COUNT(*) AS applicants,
+           AVG(CASE WHEN "class" = 'bad' THEN 1.0 ELSE 0.0 END) AS bad_rate
+    FROM credit_applicants
+    GROUP BY checking_status
+)
+SELECT checking_status, applicants, bad_rate,
+       DENSE_RANK() OVER (ORDER BY bad_rate DESC) AS risk_rate_rank
+FROM category_rates
+ORDER BY risk_rate_rank, checking_status;
+\end{lstlisting}
+
+Use SQL for data access and descriptive summaries; preserve the notebook's Python pipeline for leakage-safe model fitting and evaluation. Never select model features or thresholds from holdout-derived SQL summaries.
+
+\section{Talking points: explain without overselling}
+\begin{itemize}
+  \item The target is binary; treating \texttt{bad} as positive makes default detection metrics easier to interpret.
+  \item Stratification preserves approximate label proportions across train/test partitions and CV folds; it does not remove uncertainty from a small dataset.
+  \item ROC-AUC measures ranking, not whether predicted probabilities are accurate or whether a lending policy is profitable.
+  \item Precision and recall expose different mistakes: missed bad applicants versus good applicants flagged for review or rejected.
+  \item A class-weighted model can change probability interpretation; compare calibration and base rates, not AUC alone.
+  \item Permutation importance measures the change in predictive score after shuffling a feature. It is not causal and can be affected by correlated predictors.
+  \item This historical dataset is a teaching example, not a production underwriting dataset. Real use would require governance, calibration, fairness review, monitoring, policy controls, and legal review.
+\end{itemize}
+
+\section{Reference}
+Jun Shan, Haibin Li, Matt Goldwasser, Upom Malik, and Benjamin Johnston, \emph{SQL for Data Analytics, Fourth Edition}, Packt Publishing. Companion code repository: \url{https://github.com/PacktPublishing/SQL-for-Data-Analytics-Fourth-Edition}. The book repository's README lists examples covering table creation, COPY, Python data manipulation, SELECT, transformations, aggregation, window functions, performance, JSON/arrays, inferential statistics, and an analytics case study.
+
+\end{document}

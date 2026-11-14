@@ -1,0 +1,21 @@
+Use the attached `pair_programming_credit_risk.tex` as the source document. Refine it into a polished, compact interview-preparation handout and compile it to PDF if your environment supports LaTeX.
+
+Context: This is preparation for a 90-minute Equal Experts Python pair-programming interview based on a procedural German Credit Risk Jupyter notebook (1,000 applicants; target `good`/`bad`, with `bad=1`). Interview guidance emphasizes test-first TDD, excellent unit coverage, simple and readable code, and avoiding unnecessary abstractions. Keep the document practical and concise—not a textbook.
+
+Requirements:
+- Preserve the document's procedural Python approach and Red-Green-Refactor structure: show pytest tests before their matching implementation snippets.
+- Audit every Python snippet for correctness and consistency with the notebook's actual variables and imports. Fix errors, undefined names, stale API usage, and incorrect metrics. Keep holdout data out of model/threshold/feature selection.
+- Keep the threshold-cost example explicitly illustrative. Do not imply assumed costs represent actual bank economics. If modifying the code, include a test for edge cases such as empty thresholds and invalid costs.
+- Keep feature engineering and learned preprocessing inside scikit-learn pipelines/CV folds to avoid leakage. Explain any limitation of the simplified snippet.
+- Keep fairness analyses descriptive, report denominators, and avoid unsupported causal or legal claims. Do not invent results.
+- Review SQL examples for valid syntax. Identify dialect-specific syntax clearly; prefer portable SQL where possible. Use the Packt reference repository only as a source of general SQL analytics patterns (data loading, SELECT, aggregation, CTEs, and windows); do not claim specific queries came from it unless verified.
+- Preserve appropriate caveats: historical teaching data, no production underwriting claim, and the need for calibration, fairness, governance, and policy review.
+- Use readable code blocks, avoid page overflow, and maintain concise explanations.
+- Ensure LaTeX compiles. If compilation fails or isn't available, report that rather than claiming success.
+
+Deliverables:
+1. Refined `.tex` file.
+2. Compiled PDF if possible.
+3. A short summary of edits, test/code checks performed, and compilation status.
+
+Do not create fabricated interview questions or imply these are guaranteed to be asked. Present the material as plausible practice scenarios.
